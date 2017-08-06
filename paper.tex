@@ -1,0 +1,685 @@
+\documentclass[letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{/home/adria/Dropbox/latex/aaai}
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{courier}
+\usepackage{color}
+\usepackage{natbib}
+\usepackage{amssymb,amsmath,amsfonts}
+\usepackage{enumitem}   
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{import}
+\input{/home/adria/Dropbox/latex/acronyms.tex}
+
+\usepackage{algorithm}
+\usepackage[end]{algpseudocode}
+%\let\Algorithm\algorithm
+%\renewcommand\algorithm[1][]{\Algorithm[#1]\setstretch{1.25}}
+
+\usepackage{calc}
+\def\svgscale{1}
+\newcommand{\inkscapefig}[2]{
+\begin{figure}[hbtp]
+\begin{center}
+  \subimport{img/}{#1.pdf_tex}
+\end{center}
+\caption{#2\label{fig:#1}}
+\end{figure}
+}
+
+\usepackage[plain]{fancyref}
+% Change references from capital/normal letters
+\newcommand{\ffref}{\Fref}
+% Algorithm and subsection references
+\newcommand*{\fancyrefalglabelprefix}{alg}
+\newcommand*{\fancyrefsubseclabelprefix}{subsec}
+\frefformat{plain}{\fancyrefalglabelprefix}{%
+algorithm\fancyrefdefaultspacing#1%
+}
+\Frefformat{plain}{\fancyrefalglabelprefix}{%
+Algorithm\fancyrefdefaultspacing#1%
+}
+\frefformat{plain}{\fancyrefsubseclabelprefix}{%
+subsection\fancyrefdefaultspacing#1%
+}
+\Frefformat{plain}{\fancyrefsubseclabelprefix}{%
+Subsection\fancyrefdefaultspacing#1%
+}
+\frefformat{vario}{\fancyrefalglabelprefix}{%
+algorithm\fancyrefdefaultspacing#1 on page~#2%
+}
+\Frefformat{vario}{\fancyrefalglabelprefix}{%
+Algorithm\fancyrefdefaultspacing#1 on page~#2%
+}
+\frefformat{vario}{\fancyrefsubseclabelprefix}{%
+subsection\fancyrefdefaultspacing#1 on page~#2%
+}
+\Frefformat{vario}{\fancyrefsubseclabelprefix}{%
+Subsection\fancyrefdefaultspacing#1 on page~#2%
+}
+
+\bibliographystyle{/home/adria/Dropbox/latex/aaai}
+
+\newcommand{\vbar}{\,|\,}
+\newcommand{\mvbar}{\,\middle|\,}
+\let\Pr\undefined
+\DeclareMathOperator*{\Pr}{\mathbb{P}}
+\DeclareMathOperator*{\E}{\Ex}
+\newcommand{\Prob}[3]{\Pr_{#1 \sim #2 } \left[ #3 \right]}
+\newcommand{\Expect}[3]{\E_{#1 \sim #2 } \left[ #3 \right]}
+\newcommand{\Ex}{\mathbb{E}}
+\newcommand{\tp}{\top}
+\newcommand{\vx}{{\bf x}}
+\newcommand{\vv}{{\bf v}}
+\newcommand{\vX}{{\bf X}}
+\newcommand{\va}{{\bf a}}
+\newcommand{\vA}{{\bf A}}
+\newcommand{\vb}{{\bf b}}
+\newcommand{\vB}{{\bf B}}
+\newcommand{\vc}{{\bf c}}
+\newcommand{\vd}{{\bf d}}
+\newcommand{\vC}{{\bf C}}
+\newcommand{\vD}{{\bf D}}
+\newcommand{\mis}{\text{mis}}
+\newcommand{\obs}{\text{obs}}
+\newcommand{\misx}{{\text{mis}_\vx}}
+\newcommand{\obsx}{{\text{obs}_\vx}}
+\newcommand{\misv}{{\text{mis}_\vv}}
+\newcommand{\obsv}{{\text{obs}_\vv}}
+
+\setlength{\pdfpagewidth}{8.5in}
+\setlength{\pdfpageheight}{11in}
+\pdfinfo{
+/Title (Missing data imputation with iterated Gaussian Processes)
+/Author (Adrià Garriga-Alonso, Jinsung Yoon, Mihaela van der Schaar)}
+\setcounter{secnumdepth}{0}
+
+\title{Missing data imputation with iterated Gaussian Processes}
+\author{Adrià Garriga-Alonso, Jinsung Yoon, Mihaela van der Schaar}
+\begin{document}
+\nocopyright
+\maketitle
+
+\begin{abstract}
+\begin{quote}
+  To be written.
+\end{quote}
+\end{abstract}
+
+\section{Introduction}
+
+\ac{MICE} \citep{van1999flexible} and MissForest
+\citep{stekhoven2011missforest} use normal classification and regression models
+to perform data imputation. Inspired by their success, we try to extend them to
+a Bayesian framework, in which uncertainty about the missing data is explicitly
+propagated.
+
+The main contributions of this paper are:
+\begin{itemize}
+\item An iterative Bayesian procedure to estimate the probability distribution
+of the missing measurements given the observed measurements,
+$p(x_{\cdot,\text{mis}}\vbar x_{\cdot,\text{obs}})$. The same procedure can be used for direct
+inference (without the intermediate step of imputation), and input density
+estimation.
+
+\item An inference algorithm for the Variational Infinite GMM
+  \citep{blei2006variational} that extends to partially observable inputs
+  \citep{DIZIO20075305}.
+
+\item A generalization of the \acs{RBF} kernel to uncertain inputs with \ac{MoG}
+densities.
+
+\end{itemize}
+\section{Approach}
+Let $\bf X$ be a $n \times d$ data matrix, which has some missing values $\vX_{:,\text{mis}}$.
+Our goal is to find the posterior distribution $p(\vX_{:,\text{mis}} \vbar
+\vX_{:,\text{obs}})$ of the missing values given the observed values. Since this
+distribution is intractable, we approximate it with a factored Gaussian:
+\begin{equation}
+  p(\vX_{:,\text{mis}} \vbar \vX_{:,\text{obs}}) = \prod_{i=1}^n \mathcal{N}(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}, \mu_i, \Sigma_i)
+  \label{eq:point-factored-gaussian}
+\end{equation}
+where $\vx_{i,\text{mis}}$ and $\vx_{i,\text{obs}}$ are the missing and observed
+values of the $i$th data point; $\mu_i$ and $\Sigma_i$ are the mean
+and covariance of the Gaussian corresponding to point $i$.
+
+Ideally, the mean
+will be as close as possible to the true expectation, so we can do single
+imputation; and the variance will lean towards upper-bounding the spread of the
+true distribution, so our multiple imputation is not mistakenly too certain.
+
+The algorithm operates by iteratively refining each $\mu_i$ and $\Sigma_i$.
+First, it estimates the probability density of the data using an infinite
+\ac{GMM}, which can be done even in the presence of missing inputs. Once
+inferred, the \ac{GMM} gives rise to a \ac{MoG} density for each point's missing
+values:
+\begin{equation}
+  q^0(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}) = \sum_{k=1}^K w_k \mathcal{N}(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}, \mu_k, \Sigma_k)
+  \label{eq:ini-mog}
+\end{equation}
+where $w_k$ is the weight of the $k$th Gaussian cluster.
+
+This density can be used to compute a \emph{kernel function} $k(\vx_a, \vx_b)$,
+of inputs with missing values, by taking the expectation of the kernel over its
+inputs \citep{nebot2010kernel}:
+\begin{equation}
+k(\vx_a, \vx_b) =
+\E_{\begin{array}{c}
+  \vx_a \sim q^0(\cdot \vbar \vx_{a,\text{obs}}) \\
+  \vx_b \sim q^0(\cdot \vbar \vx_{b,\text{obs}}) \end{array}} \left[
+\hat{k}(\vx_a, \vx_b) \right]
+\label{eq:kernel-fun}
+\end{equation}
+
+Note that the distribution $q^0(\vx_a \vbar \vx_{a,\text{obs}})$ is a Kronecker
+delta if $\vx_a$ is fully observed; otherwise it is a \ac{MoG} conditioned on
+the observed values.
+
+This kernel function is used to infer a \ac{GP} for each dimension $j\in
+1,\dots,d$. The $j$th \acp{GP} is trained to output the value of the $j$th
+dimension of the input, given the probability distributions of all dimensions
+except $j$. The \ac{GP} learns only from the points in
+which the $j$th dimension is present, that is, ${\bf X}_{\text{obs}_j,:}$.
+$\text{obs}_j$ denotes the indices of the points in which dimension $j$ is
+observed.
+
+The \acp{GP} for each dimension, when evaluated for each point in $\vX$ and
+combined, form a factored Gaussian distribution with diagonal covariance. This
+distribution, now named $q^1$, is an approximation to
+\Fref{eq:point-factored-gaussian}, same as $q^0$.
+
+The form of $q^1$ is a special case of a \ac{MoG}, so the same procedure can be
+applied to produce $q^2, q^3,\dots,q^T$. Our algorithm repeats the procedure
+until the distributions converge, that is, the norm of the difference between
+the parameters of two consecutive distributions is less than $\varepsilon$.
+
+The algorithm is summarized in \Fref{fig:overview} and \Fref{alg:main-summary}.
+In the next sections, we explain how to compute \Fref{eq:ini-mog} and
+\Fref{eq:kernel-fun}.
+
+\begin{figure}[hbtp]
+\subimport{img/}{overview.pdf_tex}
+\caption{Overview of the algorithm\label{fig:overview}}
+\end{figure}
+
+\begin{algorithm}[h]
+\begin{algorithmic}
+\State {\bf Require:} ${\bf X}$ an $n \times d$ matrix with some missing values.
+\State $m_\textsc{igmm} \gets$ fit Infinite \ac{GMM} to $\vX$.
+\For{each data point $i=1,\dots,n$}
+\State $q^0(\vx_i) \gets (\delta_{x_{i,\text{obs}}}, \text{MoG}(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}))$ with $m_\textsc{igmm}$.
+\EndFor
+\State $t \gets 0$. The initial estimated density is $q^0(\vX_i)$.
+\While{$q^t(\vX)$ hasn't yet converged}
+  \For{each column $j=1,\dots,d$}
+    \State Fit a \ac{GP}: $\vX_{\text{obs}_j, j} \sim q^t(\vX_{\text{obs}_j, -j})$
+     using kernel function in \Fref{eq:kernel-fun}.
+    \State $q^{t+1}(\vX) \gets $ \ac{GP}-predicted mean and variance of missing values
+    $\vX_{:,\text{mis}}$.
+    \State $n \gets n + 1$
+  \EndFor
+\EndWhile
+\State \Return last predicted distribution, $q^T$.
+\end{algorithmic}
+\caption{Iterated \acl{GP}}
+\label{alg:main-summary}
+\end{algorithm}
+
+
+\subsection{Notation}
+
+We denote the $i$th data point with ${\bf X}_{i,:}$ or $\vx_i$ and the $j$th
+dimension of all points by ${\bf X}_{:,j}$. $\vx_{i,\text{mis}}$ are the missing
+values of the $i$th point, and $\vX_{\text{obs}_j}$ are the points where the
+$j$th dimension is observed.
+
+\subsection{Infinite \ac{GMM} with missing data}
+To be written.
+
+\subsection{\ac{RBF} kernel with \ac{MoG} data likelihood}
+The multivariate \ac{RBF} kernel has the form \citep[Equation~5.1]{rasmussen2006gaussian}:
+\begin{equation}
+k(\vx_a, \vx_b) =  \sigma_f^2 \exp\left( -\frac{1}{2}(\vx_a - \vx_b)^\tp M
+    (\vx_a - \vx_b) \right) + \sigma_n^2 \delta_{ab}
+\label{eq:rbf-definition}
+\end{equation}
+
+When computing the expectation of $\vx_a$ a probability distribution like
+\Fref{eq:ini-mog}, we get the following:
+\begin{equation*}
+  \sum_k Z_k \sqrt{\frac{(2\pi)^n}{|C|}} \exp\left( \frac{1}{2}b_k^\tp C_kb_k \right)
+\end{equation*}
+With:
+\begin{equation*}
+  C_k = M + \Sigma_k; \; b_k = -2\left(\Sigma_k\mu_k + M\vx_b \right)
+\end{equation*}
+
+To be written.
+
+\section{Related Work}
+MissForest do imputation and multiple imputation \citep{stekhoven2011missforest}.
+
+MICE do multiple imputation and it is basically the same as MissForest
+\citep{van1999flexible}.
+
+The Variational \ac{GPLVM} \citep{damianou2016variational} also perform
+inference and prediction in the presence of missing data. However, they require
+a subset of the data that is complete, in order to bootstrap their method; which
+makes it biased for MAR data.
+
+
+The expectation over the kernel was developed by \citet{nebot2010kernel} and
+\citet{hernandez2015study}. They used a factored Gaussian model of the data, in
+which every point has an associated Gaussian. They also assumed that the
+dimensions were independent.
+
+%Apparently \citet{zhu2011missing} estimate density with kernel functions. I don't
+%understand the paper.
+
+\citet{iwata2012warped} also estimate a density model, which is effectively
+\ac{GPLVM} but with a latent Gaussian Mixture Model instead of a single
+Gaussian.
+
+\bibliography{/home/adria/Dropbox/papers/already-read.bib}
+
+\section{Appendix}
+
+\subsection{Multidimensional \ac{RBF} kernel with partially observed \ac{MoG}}
+We want to calculate $k(\vx, \vv)$, where any of $x_1,\dots,x_d = \vx$ or
+$v_1,\dots,v_d = \vv$ may be missing. Let $\vx$ and $\vv$ be random variables denoting
+two inputs to the kernel. Let $\text{mis}(\vx)$ and $\text{obs}(\vx)$ be the
+dimensions that are missing and observed in $\vx$, respectively. Let
+$\vx_{\text{mis}(\vx)}$, shortened as $\vx_\text{mis}$, be the random variable
+denoting the values of the variables missing in $\vx$, analogously with
+$\vx_{\text{obs}(\vx)}$ and $\vx_\text{obs}$.
+
+The probability density of $\vx_\text{mis}$ is a \acl{MoG}:
+\begin{equation*}
+  p(\vx_\text{mis} ) = \sum_{k=1}^K w^\vx_k \, \mathcal{N}(\vx_\text{mis} \vbar \mu_k^\vx, \Sigma_k^\vx)
+\end{equation*}
+
+with $K$ clusters, means $\mu_k^\vx$, covariances $\Sigma_k^\vx$ and importances
+$w_k^\vx$. We write $p(\vx_\text{mis})$ instead of $p(\vx_\text{mis} \vbar
+\vx_\text{obs})$ because $\vx_\text{mis}$ is conditionally independent from
+$\vx_\text{obs}$ given the means, covariances and importances of all the
+clusters.
+
+The distributions of $\vx_\mis$ and $\vv_\mis$ come from the same \ac{GMM}.
+However, $\vv_\mis$ has instead $L$ Gaussians in its input distribution, which may be
+different from $K$. This is because, to reduce the amount of computation
+required, we may prune Gaussians according to their responsibility for a point.
+
+Note that
+$\text{mis}_\vx$ and $\text{mis}_\vv$ are not the same set of dimensions in
+general. Thus, the distributions $p(\vx_\text{mis})$ and $p(\vv_\text{mis})$ may
+not have the same number of variables.
+
+The probability density of $\vx_\text{obs}$ is a Dirac delta at the point where
+the variables are actually observed, $\mu^\vx_{\text{obs}(\vx)}$, shortened as
+$\mu^\vx_\text{obs}$. We denote the distribution as
+$\delta(\vx_\text{obs}-\mu^\vx_\text{obs})$.
+
+We are ready to define the probability distribution of a partially observed
+point. The defined distributions for $\vx_\text{mis}$ and $\vx_\text{obs}$ are
+conditionally independent. Thus:
+
+\begin{equation}
+p(\vx) = \left(\sum_{k=1}^K w_k^\vx \, \mathcal{N}(\vx_\text{mis}| \mu^\vx_k,
+  \Sigma^\vx_k)\right) \delta(\vx_\text{obs}-\mu^\vx_\text{obs})
+\label{eq:pdf-partially-observed-long}
+\end{equation}
+
+We make the Gaussian explicit and separate the terms that contain $\vx$ from the
+ones that don't, inside the sum:
+\begin{equation}
+p(\vx) = \sum_{k=1}^K \tau_k^\vx g_k^\vx
+\label{eq:pdf-partially-observed}
+\end{equation}
+
+With:
+\begin{equation*}
+\tau_k^\vx = \left(2\pi\right)^{-|\misx|/2} |\Sigma_k^\vx|^{-1/2}w_k^\vx
+\end{equation*}
+\begin{equation*}
+  \begin{aligned}
+g_k^\vx &= \exp\left[-\frac{1}{2}\left(\vx_\text{mis} -
+    \mu_k^\vx\right)^\tp(\Sigma_k^\vx)^{-1}\left(\vx_\text{mis} - \mu_k^\vx\right)\right] \\
+&\hspace{4em} \delta(\vx_\text{obs}-\mu^\vx_\text{obs})
+  \end{aligned}
+\end{equation*}
+
+Following \fref{eq:kernel-fun} we calculate:
+\begin{equation}
+  k(\vx, \vv) = \E_\vx \E_\vv \left[ \hat{k}(\vx, \vv) \right]
+  \label{eq:expect-kernel}
+\end{equation}
+
+Here we distinguish three cases.
+\begin{enumerate}
+\item If $\vx$ and $\vv$ are both fully observed, then straightforwardly $k(\vx,
+\vv) = \hat{k}(\vx, \vv)$.
+
+\item If $\vx$ and $\vv$ are the same observation, then they are not
+  independent. We substitute $\vv$ for $\vx$ in \fref{eq:expect-kernel}:
+\begin{equation}
+  k(\vx, \vx) = \E_\vx \left[\hat{k}(\vx, \vx) \right] = \int_{-\infty}^\infty
+k(\vx, \vx) p(\vx) d\vx
+  \label{eq:same-inputs}
+\end{equation}
+
+\item If $\vx$ and $\vv$ are different observations, by
+the \ac{iid} assumption they are independent: $p(\vx, \vv) = p(\vx)p(\vv)$. Thus
+we can write \fref{eq:expect-kernel} as:
+\begin{equation}
+  k(\vx, \vv) = \E_\vx \E_\vv \left[ \hat{k}(\vx, \vv) \right] = 
+  \int_{-\infty}^\infty k(\vx, \vv) p(\vx) p(\vv) d\vx d\vv
+  \label{eq:independent-inputs}
+\end{equation}
+\end{enumerate}
+
+The developments above were kernel-agnostic. However, from now on we are
+concerned exclusively with the \ac{RBF} kernel, defined in
+\fref{eq:rbf-definition}.
+
+\subsubsection{Case 2: $\vx=\vv$, with \ac{RBF} kernel.}
+We substitute into \fref{eq:same-inputs} the definition from
+\fref{eq:rbf-definition}:
+
+\begin{equation*}
+\begin{aligned}
+ k(\vx, \vx) &= \int \bigg[\sigma_f^2 \exp\left( -\frac{1}{2}(\vx - \vx)^\tp M
+     (\vx - \vx) \right) \\
+   &\hspace{4em} + \sigma_n^2 \delta_{\vx\vx} \bigg] p(\vx) d\vx \\
+ &= \int \left[ \sigma_f^2 \exp({\bf 0}^\tp M {\bf 0}) + \sigma_n^2 \right] p(\vx) d\vx \\
+&= \left[ \sigma_f^2 + \sigma_n^2 \right] \int p(\vx) d\vx = \sigma_f^2 + \sigma_n^2
+\end{aligned}
+\end{equation*}
+
+
+\subsubsection{Case 3: $\vx\neq\vv$, with \ac{RBF} kernel.}
+We substitute into \fref{eq:independent-inputs} the definitions from equations
+(\ref{eq:rbf-definition}) and (\ref{eq:pdf-partially-observed}):
+
+\begin{equation*}
+\begin{aligned}
+ k(\vx, \vv) = \int & \left[\sigma_f^2 \exp\left( -\frac{1}{2}(\vx - \vv)^\tp M (\vx - \vv) \right) + \sigma_n^2 \delta_{\vx\vv} \right] \\
+ & \left[\sum_{k=1}^K \tau_k^\vx g_k^\vx \right]
+ \left[\sum_{l=1}^L \tau_l^\vv g_l^\vv \right]
+ d\vx d\vv
+\end{aligned}
+\end{equation*}
+
+Rearranging the terms and by linearity of the antidifferentiation:
+\begin{equation}
+\begin{aligned}
+  &k(\vx,\vv) = \sum_{k=1}^K \sum_{l=1}^L \big[\sigma_n^2 \int \delta_{\vx\vv} \; \tau^\vx_k g_k^\vx \; \tau^\vv_l g_l^\vv \; d\vx d\vv \; + \\
+  &\hspace{1em}\tau^\vx_k \tau^\vv_l \sigma_f^2 \int \exp\left(-\frac{1}{2}(\vx-\vv)^\tp M (\vx-\vv)\right)
+g_k^\vx g_l^\vv d\vx d\vv
+\end{aligned}
+\label{eq:kxv-2integrals}
+\end{equation}
+
+Focusing on the first integral: it is the expectation of a Kronecker delta
+$\delta_{\vx\vv}$, with respect to $\vx$ and $\vv$. At least one of $x_i \in \vx$ or
+$v_j \in \vv$ follows a Gaussian distribution, the density function of which has
+a strictly positive, finite, value on all
+the reals. Thus $\E_\vx\E_\vv[\delta_{\vx\vv}] = 0$.
+
+Expanding the second integral, which we name $I_{kl}$:
+
+\begin{equation*}
+\begin{aligned}
+I_{kl} &= \int \exp\left(-\frac{1}{2}(\vx-\vv)^\tp M (\vx-\vv)\right) g_k^\vx g_l^\vv d\vx
+d\vv \\
+&= \int \exp\left(-\frac{1}{2}(\vx-\vv)^\tp M (\vx-\vv)\right) \\
+&\hspace{2em}\exp\left(-\frac{1}{2}\left(\vx_\text{mis} -
+    \mu_k^\vx\right)^\tp(\Sigma_k^\vx)^{-1}\left(\vx_\text{mis} - \mu_k^\vx\right)\right) \\
+& \hspace{4em} \delta(\vx_\text{obs}-\mu^\vx_\text{obs}) \\
+&\hspace{2em}\exp\left(-\frac{1}{2}\left(\vv_\text{mis} -
+    \mu_l^\vv\right)^\tp(\Sigma_l^\vv)^{-1}\left(\vv_\text{mis} - \mu_l^\vv\right)\right)\\
+&\hspace{4em} \delta(\vv_\text{obs}-\mu^\vv_\text{obs})
+d\vx d\vv \\
+&= \int \exp( f_{kl}(\vx, \vv) ) \delta(\vx_\text{obs}-\mu^\vx_\text{obs}) \delta(\vv_\text{obs}-\mu^\vv_\text{obs}) d\vx d\vv
+\end{aligned}
+\end{equation*}
+
+Where we defined:
+\begin{equation*}
+\begin{aligned}
+  f_{kl}(\vx, \vv) = -\frac{1}{2}\big[ &(\vx-\vv)^\tp M (\vx-\vv) \\
+&+ \left(\vx_\text{mis} - \mu_k^\vx\right)^\tp(\Sigma_k^\vx)^{-1}\left(\vx_\text{mis} - \mu_k^\vx\right) \\
+&+ \left(\vv_\text{mis} - \mu_l^\vv\right)^\tp(\Sigma_l^\vv)^{-1}\left(\vv_\text{mis} - \mu_l^\vv\right) \big]
+\end{aligned}
+\end{equation*}
+
+Recall that the integral sign is actually several integrals, and that $d\vx =
+\prod_j dx_j$. We can freely permute the integrals, we do so here and separate
+observed and missing variables:
+
+\begin{equation*}
+  \begin{aligned}
+    I_{kl} &= \int \bigg[ \int \exp( f_{kl}([\vx_\text{mis}; \vx_\text{obs}], [\vv_\text{mis}; \vv_\text{obs}]) ) \\
+    & \hspace{2em} \delta(\vx_\text{obs}-\mu^\vx_\text{obs}) \delta(\vv_\text{obs}-\mu^\vv_\text{obs}) d\vx_\text{obs} d\vv_\text{obs} \bigg] d\vx_\text{mis}d\vv_\text{mis}
+  \end{aligned}
+\end{equation*}
+
+Where we made explicit that $\vx = [\vx_\text{mis}; \vx_\text{obs}]$, up to
+element permutation.
+We can now integrate out the observed variables by replacing them with the
+offsets in the Dirac deltas:
+
+\begin{equation*}
+  I_{kl} = \int \exp( f_{kl}([\vx_\text{mis}; \mu^\vx_\text{obs}], [\vv_\text{mis}; \mu^\vv_\text{obs}]) ) d\vx_\text{mis}d\vv_\text{mis}
+%  \label{eq:f-missing}
+\end{equation*}
+
+Now we need to separate $\vx_\mis$ from $\vx_\obs$ in $f$. First we regroup its terms:
+\begin{equation*}
+\begin{aligned}
+f_{kl}(\vx, \vv) &= - \frac{1}{2}\big[(\vx-\vv)^\tp M (\vx-\vv) \\
+&\hspace{1.1em}+ (\vx_\text{mis} - \mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1}(\vx_\text{mis} - \mu_k^\vx ) \\
+&\hspace{1.1em}+ (\vv_\text{mis} - \mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1}(\vv_\text{mis} - \mu_l^\vv) \big] \\
+&= -\frac{1}{2}\big[\vx^\tp M \vx - \vv^\tp M \vx - \vx^\tp M \vv + \vv^\tp M \vv \\
+&\hspace{1.1em}+ \vx_\text{mis}^\tp  (\Sigma_k^\vx)^{-1}\vx_\text{mis} - (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \vx_\text{mis} \\
+&\hspace{1.1em}- \vx_\text{mis}^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx + (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx + v_l \big] \\
+&= -\frac{1}{2}\big[\vx^\tp M \vx - \vv^\tp (M+M^\tp) \vx + \vv^\tp M \vv \\
+&\hspace{1.1em}+ \vx_\text{mis}^\tp  (\Sigma_k^\vx)^{-1}\vx_\text{mis} + (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx \\
+&\hspace{1.1em}- 2 (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \vx_\text{mis}  + v_l \big] \\
+\end{aligned}
+\end{equation*}
+With a term that depends on $\vv_\mis$ and the cluster $k$, now constant for our purposes:
+\begin{equation*}
+\begin{aligned}
+v_l &= \vv_\text{mis}^\tp  (\Sigma_l^\vv)^{-1}\vv_\text{mis} + (\mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1} \mu_l^\vv \\
+&- 2 (\mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1}\vv_\text{mis} \\
+\end{aligned}
+\end{equation*}
+
+We can split multiplications involving $\vx$:
+\begin{equation*}
+\vx^\tp M \vx =
+\begin{bmatrix}\vx_\mis \\ \mu^\vx_\obs\end{bmatrix}^\tp
+\begin{bmatrix} M_{\misx,\misx} & M_{\misx,\obsx} \\
+M_{\obsx,\misx} & M_{\obsx,\obsx}
+\end{bmatrix}
+\begin{bmatrix}\vx_\mis \\ \mu^\vx_\obs\end{bmatrix}
+\end{equation*}
+\begin{equation*}
+\begin{aligned}
+\vx^\tp M \vx &= \vx_\mis^\tp M_{\misx,\misx}\vx_\mis + (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs \\
+&+ (\mu^\vx_\obs)^\tp \left(M_{\misx,\obsx}^\tp + M_{\obsx,\misx} \right)\vx_\mis  \\
+\vv^\tp(M + M^\tp) \vx &= \vv^\tp(M + M^\tp)_{:,\misx} \vx_\mis \\
+&+ \vv^\tp(M + M^\tp)_{:,\obsx} \mu^\vx_\obs
+\end{aligned}
+\end{equation*}
+
+Substituting these back into $f_{kl}$ we get:
+\begin{equation*}
+  f_{kl}(\vx, \vv) = -\frac{1}{2}\vx_\mis^\tp \vA \vx_\mis + \va^\tp \vx_\mis + a
+\end{equation*}
+The newly introduced variables carry an implicit $kl$ index:
+\begin{equation*}
+\begin{aligned}
+\vA &= M_{\misx,\misx} + (\Sigma_k^\vx)^{-1} \\
+\va^\tp &= -\frac{1}{2}\Bigg[(\mu^\vx_\obs)^\tp \left(M_{\misx,\obsx}^\tp + M_{\obsx,\misx} \right) \\
+&\hspace{1.1em}- 2 (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} - \vv^\tp(M + M^\tp)_{:,\misx} \Bigg] \\
+a &= -\frac{1}{2} \Bigg[ (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs - (\mu^\vx_\obs)^\tp(M + M^\tp)_{\obsx,:} \vv \\
+&\hspace{1.1em} + \vv^\tp M \vv + (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx + v_l \Bigg]
+\end{aligned}
+\end{equation*}
+
+$I_{kl}$ is a Gaussian integral. These integrals only have a closed form when
+integrated over $(-\infty, \infty)$. Fortunately, this is the case here.
+For $d$-dimensional vectors $\vx$, $\vb$ and matrix $\vA$
+\citep[Equation~11]{straub2009brief}:
+\begin{equation}
+  \begin{aligned}
+\int_{-\infty}^\infty \dots \int_{-\infty}^\infty &\exp\left(-\frac{1}{2}\vx^\tp\vA\vx + \vb^\tp\vx\right) d\vx = \\
+&\frac{(2\pi)^{d/2}}{|\vA|^{1/2}} \exp \left(\frac{1}{2} \vb^\tp \vA^{-1}\vb \right)
+  \end{aligned}
+  \label{eq:gaussian-integral}
+\end{equation}
+
+We use this to integrate $\vx_\mis$ in $I_{kl}$, with $f$ as in \fref{eq:gaussian-integral}:
+\begin{equation*}
+  \begin{aligned}
+  I_{kl} &= \int \exp(a) \left[ \int \exp(-\frac{1}{2}\vx_\mis^\tp \vA \vx_\mis + \va^\tp \vx_\mis) d\vx_\mis \right] d\vv_\mis \\
+    &= \int \exp(a) \frac{(2\pi)^{|\misx|/2}}{|\vA|^{1/2}} \exp \left(\frac{1}{2} \va^\tp \vA^{-1}\va \right) d\vv_\mis
+  \end{aligned}
+\end{equation*}
+
+We expand the new multiplication, to separate $\vv$:
+\begin{equation*}
+\begin{aligned}
+  \frac{1}{2} \va^\tp \vA^{-1} \va &= \frac{1}{8}\bigg[
+  \vv^\tp(M + M^\tp)_{:,\misx} \vA^{-1} (M + M^\tp)_{:,\misx}^\tp\vv \\
+  &- \va_0^\tp \left(\vA^{-1} + (\vA^{-1})^\tp\right) (M + M^\tp)_{:,\misx}^\tp \vv \\
+  &+ \va_0^\tp\vA^{-1}\va_0 \bigg] 
+\end{aligned}
+\end{equation*}
+With:
+\begin{equation*}
+\begin{aligned}
+  \va_0^\tp &= (\mu^\vx_\obs)^\tp \left(M_{\misx,\obsx}^\tp + M_{\obsx,\misx} \right) \\
+&- 2(\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1}
+\end{aligned}
+\end{equation*}
+
+Using this we can rewrite the integral:
+\begin{equation*}
+\begin{aligned}
+I_{kl} = \mathcal{Z}_0 \int \exp \left(\vv^\tp \vB \vv + \vb^\tp \vv + \vv_\mis^\tp \vB_0 \vv_\mis + \vb_0^\tp \vv_\mis \right) d\vv_\mis
+\end{aligned}
+\end{equation*}
+\begin{equation*}
+\begin{aligned}
+\mathcal{Z}_0 &= \frac{(2\pi)^{|\misx|/2}}{|\vA|^{1/2}}\exp\bigg(-\frac{1}{2}\big[ \\
+&\hspace{2em} (\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx
++ (\mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1}\mu_l^\vv \\
+&\hspace{2em}+ (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs \big]
++ \frac{1}{8}\va_0^\tp \vA^{-1} \va_0 \bigg) \\
+\vB &= -\frac{1}{2} \left[M - \frac{1}{4}(M + M^\tp)_{:,\misx} \vA^{-1} (M + M^\tp)_{:,\misx}^\tp \right] \\
+\vb^\tp &= -\frac{1}{8}\va_0^\tp \left(\vA^{-1} + (\vA^{-1})^\tp\right) (M + M^\tp)_{:,\misx}^\tp \\
+&\hspace{2em}+ \frac{1}{2} (\mu^\vx_\obs)^\tp (M + M^\tp)_{\obsx,:} \\
+\vB_0 &= -\frac{1}{2} (\Sigma_l^\vv)^{-1} \\
+\vb_0^\tp &= (\mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1}
+\end{aligned}
+\end{equation*}
+
+And rewrite it again, to completely pull out the $\vv_\obs$:
+\begin{equation*}
+\begin{aligned}
+I_{kl} = \mathcal{Z}_1 \int \exp \left(-\frac{1}{2}\vv_\mis^\tp \vC \vv_\mis + \vc^\tp
+\vv_\mis \right) d\vv_\mis
+\end{aligned}
+\end{equation*}
+\begin{equation*}
+\begin{aligned}
+  \mathcal{Z}_1 &= \mathcal{Z}_0 \exp\left((\mu_\obs^\vv)^\tp\vB_{\obsv,\obsv}\mu_\obs^\vv
+  + \vb_\obsv^\tp \mu_\obs^\vv \right) \\
+\vC &= (\Sigma_l^\vv)^{-1} -2 \vB_{\misv,\misv} \\
+\vc &= \vb_0 + \vb_\misv + (\vB + \vB^\tp)_{\misv,\obsv}\mu_\obs^\vv
+\end{aligned}
+\end{equation*}
+
+We use \fref{eq:gaussian-integral} again:
+\begin{equation*}
+\begin{aligned}
+I_{kl} &= \mathcal{Z}_1 \int \exp \left(-\frac{1}{2}\vv_\mis^\tp \vC \vv_\mis + \vc^\tp
+\vv_\mis \right) d\vv_\mis \\
+ &= \mathcal{Z}_1 \frac{(2\pi)^{|\misv|/2}}{|\vC|^{1/2}}\exp\left(\frac{1}{2}\vc^\tp \vC^{-1}\vc\right)
+\end{aligned}
+\end{equation*}
+
+Finally, we substitute this back into \fref{eq:kxv-2integrals}:
+\begin{equation}
+k(\vx, \vv) = \sum_{k=1}^K\sum_{l=1}^L \sigma_f^2 \tau_k\tau_l I_{kl}
+\end{equation}
+
+Before writing an expanded expression for $k(\vx, \vv)$, we simplify some of
+its components. The \ac{RBF} distance hyperparameter $M$ is usually a diagonal
+matrix, we will only assume it is symmetric. If $M = M^\tp$, then $\vA =
+\vA^\tp$, and:
+\begin{equation*}
+\begin{aligned}
+  \vB &= -\frac{1}{2}\left[M - M_{:,\misx}\vA^{-1}M_{\misx,:}\right] \\
+  \va_1 &= \frac{1}{2}\va_0 = M_{\misx,\obsx} \mu_\obs^\vx - (\Sigma_k^\vx)^{-1}\mu_k^\vx \\
+  \vb &= - M_{:,\misx}\vA^{-1} \va_1 + M_{:,\obsx}\mu^\vx_\obs
+\end{aligned}
+\end{equation*}
+
+This implies that $\vB$ is symmetric. We also define $\vd$, which will simplify
+the constants introduced in $\mathcal{Z}_1$:
+\begin{equation*}
+\begin{aligned}
+  \vC &= (\Sigma_l^\vv)^{-1} + M_{\misv,\misv} - M_{\misv,\misx}\vA^{-1}M_{\misx,\misv} \\
+  \vd &= 2\vB_{:,\obsv}\mu_\obsv \\
+  \vc &= (\Sigma_l^\vv)^{-1}\mu_l^\vv + \vb_\misv + \vd_\misv
+\end{aligned}
+\end{equation*}
+
+Recall that $\misx \cap \obsx = \varnothing$, so all the elements of
+$M_{\misx,\obsx}$ are off-diagonal in $M$. Thus, if we assume $M$ is diagonal,
+as is often the case with the \ac{RBF} kernel, then $M_{\misx,\obsx} = 0$:
+\begin{equation*}
+\begin{aligned}
+  \vC &= (\Sigma_l^\vv)^{-1} + M_{\misv,\misv}\\
+  \va_1 &= - (\Sigma_k^\vx)^{-1}\mu_k^\vx \\
+\end{aligned}
+\end{equation*}
+
+
+Finally we expand \fref{eq:kxv-2integrals}. Note that $\vA$, $\va_1$,
+$\vB$, $\vb$, $\vC$ and $\vc$ depend on $k$ and $l$, and the powers of $(2\pi)$
+cancel out.
+\begin{equation*}
+\begin{aligned}
+  k(\vx, \vv) &= \sigma_f^2 \sum_{k=1}^K\sum_{l=1}^L w_k^\vx w_l^\vv
+  \left(|\Sigma_k^\vx||\vA||\Sigma_l^\vv||\vC|\right)^{-1/2} \exp \bigg(\\
+  &\hspace{1.1em} -\frac{1}{2} \big[
+(\mu_k^\vx)^\tp (\Sigma_k^\vx)^{-1} \mu_k^\vx
++ (\mu_l^\vv)^\tp (\Sigma_l^\vv)^{-1}\mu_l^\vv \\
+&\hspace{3em}+ (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs
+- \va_1^\tp \vA^{-1} \va_1  \\
+&\hspace{3em}- \vc^\tp\vC^{-1} \vc - (\vd + 2\vb)^\tp_\obsv\mu_\obs^\vv
+\big] \bigg) \\
+\end{aligned}
+\end{equation*}
+
+One final remark. When computing a kernel matrix, it is computationally helpful
+to compute the following quantities once per Gaussian, rather than once per pair of Gaussians:
+$\vA^{-1}$, which serves as $\vC^{-1}$ when the point is $\vv$ instead of $\vx$,
+$(|\Sigma_k^\vx||\vA|)$, $\left[\left(\Sigma_k^\vx\right)^{-1} \mu_k^\vx\right]$,
+$\left[\left(\mu_k^\vx\right)^\tp
+\left(\Sigma_k^\vx\right)^{-1}\mu_k^\vx\right]$, $\left[\vA^{-1}\va\right]$ and
+$\left[\va\vA^{-1}\va\right]$.
+
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "paper"
+%%% End:
