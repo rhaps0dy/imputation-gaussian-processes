@@ -7,7 +7,9 @@
 \usepackage{courier}
 \usepackage{color}
 \usepackage{natbib}
-\usepackage{amssymb,amsmath,amsfonts}
+\usepackage{amssymb,amsmath,amsfonts,amsthm}
+\usepackage{dsfont}
+\usepackage{mathtools}
 \usepackage{enumitem}   
 \usepackage{graphicx}
 \usepackage{hyperref}
@@ -89,6 +91,7 @@ Subsection\fancyrefdefaultspacing#1 on page~#2%
 \newcommand{\obsx}{{\text{obs}_\vx}}
 \newcommand{\misv}{{\text{mis}_\vv}}
 \newcommand{\obsv}{{\text{obs}_\vv}}
+\newcommand{\Indicator}[1]{\mathds{1}(#1)}
 
 \setlength{\pdfpagewidth}{8.5in}
 \setlength{\pdfpageheight}{11in}
@@ -111,9 +114,10 @@ Subsection\fancyrefdefaultspacing#1 on page~#2%
 
 \section{Introduction}
 
+
 \ac{MICE} \citep{van1999flexible} and MissForest
 \citep{stekhoven2011missforest} use normal classification and regression models
-to perform data imputation. Inspired by their success, we try to extend them to
+to perform data imputation. Inspired by their success, we try to extend their approach to
 a Bayesian framework, in which uncertainty about the missing data is explicitly
 propagated.
 
@@ -122,49 +126,139 @@ The main contributions of this paper are:
 \item An iterative Bayesian procedure to estimate the probability distribution
 of the missing measurements given the observed measurements,
 $p(x_{\cdot,\text{mis}}\vbar x_{\cdot,\text{obs}})$. The same procedure can be used for direct
-inference (without the intermediate step of imputation), and input density
-estimation.
+inference (without the intermediate step of imputation).
 
 \item An inference algorithm for the Variational Infinite GMM
-  \citep{blei2006variational} that extends to partially observable inputs
-  \citep{DIZIO20075305}.
+ \citep{blei2006variational,BishopChristopherM2006Pram} that extends to
+partially observable inputs \citep{DIZIO20075305}.
 
 \item A generalization of the \acs{RBF} kernel to uncertain inputs with \ac{MoG}
 densities.
 
 \end{itemize}
-\section{Approach}
-Let $\bf X$ be a $n \times d$ data matrix, which has some missing values $\vX_{:,\text{mis}}$.
-Our goal is to find the posterior distribution $p(\vX_{:,\text{mis}} \vbar
-\vX_{:,\text{obs}})$ of the missing values given the observed values. Since this
-distribution is intractable, we approximate it with a factored Gaussian:
+\section{Problem setup}
+Let $\bf X$ be a $n \times d$ data matrix, which has some missing values.
+We denote the $i$th data point with ${\bf X}_{i,:}$ or $\vx_i$ and the $j$th
+dimension of all points by ${\bf X}_{:,j}$. $\vx_{i,\text{mis}}$ are the missing
+values of the $i$th point, and $\vX_{\text{obs}_j}$ are the points where the
+$j$th dimension is observed.
+
+We assume that
+these points are drawn independently from the same distribution, $\vx_i \sim
+\mathcal{D}$. We would like to estimate the probability distribution of the
+missing values given the observed values, $p(\vx_{i,\mis} \vbar
+\vx_{i,\obs})$, for all points $i$.
+
+In an ideal Bayesian setting, we would proceed as
+follows. First, we make assumptions about what the distribution $\mathcal{D}$ can be: we
+choose an expression $p(\vX \vbar \theta)$ for the likelihood of the data given
+some parameters $\theta \in \Theta$, and a prior distribution $p(\theta)$ for these
+parameters.
+%parametrised by $\theta$ for the likelihood of the
+%missing
+%values given the observed values $p(\vX_{:,\mis}, \vX_{:,\obs} \vbar \theta)$;
+%and a prior distribution for the parameters, $p(\theta)$.
+Then, we calculate the posterior distribution of the parameters given the data
+that is available to us, $p(\theta \vbar \vX_{:,\obs}) \propto
+p(\vX_{:,obs} \vbar \theta)p(\theta)$. Using that, we can calculate the desired
+distribution, $p(\vX_{:,\mis} \vbar \vX_{:,\obs}) = \int_\Theta
+p(\vX_{:,\mis}\vbar \theta)p(\theta \vbar \vX_{:,\obs}) d\theta$. 
+This gives us a complete specification of all the information that can be
+obtained from the observed data, given our assumptions
+about the form of $p(\vX | \theta)$ and $p(\theta)$.
+
+However, this inference is intractable for all but the simplest of models. In
+practice, we approximate the posterior $p(\vX_{:,\mis} | \vX_{:, \obs})$ with
+another distribution $q(\vX_{:,\mis})$, for example using variational inference.
+Because of the \ac{iid} assumption, the distribution can be factored across data
+points, $q(\vX_{:,\mis}) = \prod_{i=1}^n q(\vx_{i,\mis})$.
+
+
+This paper describes two algorithms to estimate $q(x_i)$. The first one,
+based on the variational infinite \acl{GMM}
+\citep{blei2006variational,BishopChristopherM2006Pram}, follows the procedure
+just described to produce an estimation of the data density with \acf{MoG} form:
 \begin{equation}
-  p(\vX_{:,\text{mis}} \vbar \vX_{:,\text{obs}}) = \prod_{i=1}^n \mathcal{N}(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}, \mu_i, \Sigma_i)
+  q(\vx_i) = \sum_{k=1}^K \pi_k \: \mathcal{N}(\vx_i \vbar \mu_k, \Sigma_k)
+  \label{eq:point-factored-mog}
+\end{equation}
+Given this distribution, it is possible to analytically compute
+the conditional distribution
+$q(x_{i,\mis} \vbar x_{i,\obs}; \left\{\mu_k, \Sigma_k\right\}_k)$.
+
+As MissForest \citep{stekhoven2011missforest} shows, a crucial component of
+having an accurate estimate of the missing data is finding correlations between
+variables. However, Gaussian
+distributions can only reflect linear correlations and, intuitively, \aclp{MoG}
+can only reflect softly piece-wise linear ones.
+
+To address this shortcoming, we introduce a second algorithm, based on
+MissForest and \acfp{GP}. The distribution
+defined by this algorithm is factorized over data points and dimensions:
+
+\begin{equation}
+ q(\vx_i)= \prod_{j=1}^d \mathcal{N}(x_{i,j} \vbar \mu_{i,j}, \sigma_{i,j})
   \label{eq:point-factored-gaussian}
 \end{equation}
-where $\vx_{i,\text{mis}}$ and $\vx_{i,\text{obs}}$ are the missing and observed
-values of the $i$th data point; $\mu_i$ and $\Sigma_i$ are the mean
-and covariance of the Gaussian corresponding to point $i$.
 
-Ideally, the mean
-will be as close as possible to the true expectation, so we can do single
-imputation; and the variance will lean towards upper-bounding the spread of the
-true distribution, so our multiple imputation is not mistakenly too certain.
+Note that this distribution has a mean and variance for every data point and
+dimension, so it is not strictly less expressive than the one in
+\ffref{eq:point-factored-mog}.
+The distribution also satisfies two basic goals of data imputation. One, to find
+an estimate of the missing values, $\mu_{i,j}$, that is as close as possible to
+the real values. Two, to quantify how much these estimations may differ from the
+real value, with $\sigma_{i,j}$.
 
-The algorithm operates by iteratively refining each $\mu_i$ and $\Sigma_i$.
-First, it estimates the probability density of the data using an infinite
-\ac{GMM}, which can be done even in the presence of missing inputs. Once
+%Following the work of
+%\citet{nebot2010kernel}, we take the
+%distribution estimated 
+%We describe one algorithm for estimating
+The algorithm operates by iteratively refining each $\mu_i$ and $\sigma_i$ from
+a previous estimate, much like MissForest. A summary of the algorithm can be
+found in \ffref{fig:overview}.
+
+\begin{figure}[hbtp]
+\subimport{img/}{overview.pdf_tex}
+\caption{Overview of the Iterative \acp{GP} algorithm\label{fig:overview}}
+\end{figure}
+
+\section{Infinite \ac{GMM} with missing data}
+
+We estimate the probability density of the data using a variational
+approximation to an infinite \ac{GMM}, which can be done even in the presence of
+missing inputs\footnote{To write: show how.}. Once
 inferred, the \ac{GMM} gives rise to a \ac{MoG} density for each point's missing
 values:
 \begin{equation}
   q^0(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}) = \sum_{k=1}^K w_k \mathcal{N}(\vx_{i,\text{mis}} \vbar \vx_{i,\text{obs}}, \mu_k, \Sigma_k)
   \label{eq:ini-mog}
 \end{equation}
-where $w_k$ is the weight of the $k$th Gaussian cluster.
+where $w_k$ is the weight of the $k$th Gaussian cluster. The superindex of the
+distribution name $q$ indicates the iteration of the algorithm it pertains to.
 
-This density can be used to compute a \emph{kernel function} $k(\vx_a, \vx_b)$,
-of inputs with missing values, by taking the expectation of the kernel over its
-inputs \citep{nebot2010kernel}:
+\section{Iterative \aclp{GP}}
+
+We briefly review \acp{GP} \citep{rasmussen2006gaussian}. A function $f(\vx)$ is
+drawn from a \acl{GP}, $f(\vx) \sim \mathcal{GP}(0, k(\vx, \vx'))$, if $k(\vx,
+\vx) = \mathcal{E}[f(\vx)f(\vx')]$. $k$ is called the \emph{kernel function},
+and it completely specifies a \ac{GP} with the mean function, which here we have
+defined to be zero. Intuitively, kernel function specifies how similar the
+outputs $f(\vx)$ and $f(\vx')$ of two points are.
+
+A commonly-used kernel function is the \ac{RBF} kernel
+\citep[Equation~5.1]{rasmussen2006gaussian}:
+\begin{equation}
+k(\vx_a, \vx_b) =  \sigma_f^2 \exp\left( -\frac{1}{2}(\vx_a - \vx_b)^\tp M
+    (\vx_a - \vx_b) \right) + \sigma_n^2 \delta_{ab}
+\label{eq:rbf-definition}
+\end{equation}
+with $M$ usually a diagonal matrix, sometimes just a scalar; and $\delta_{ab}$
+is a Kronecker delta.
+
+The function is undefined when one or more of the values $x_i$ are missing.
+However, if we have a probability distribution over the missing values, we can
+compute the expectation of kernel, which is a valid kernel
+\citep{nebot2010kernel}:
 \begin{equation}
 k(\vx_a, \vx_b) =
 \E_{\begin{array}{c}
@@ -176,7 +270,7 @@ k(\vx_a, \vx_b) =
 
 Note that the distribution $q^0(\vx_a \vbar \vx_{a,\text{obs}})$ is a Kronecker
 delta if $\vx_a$ is fully observed; otherwise it is a \ac{MoG} conditioned on
-the observed values.
+the observed values. See the Appendix for the calculation of \ref{eq:kernel-fun}.
 
 This kernel function is used to infer a \ac{GP} for each dimension $j\in
 1,\dots,d$. The $j$th \acp{GP} is trained to output the value of the $j$th
@@ -199,11 +293,6 @@ the parameters of two consecutive distributions is less than $\varepsilon$.
 The algorithm is summarized in \Fref{fig:overview} and \Fref{alg:main-summary}.
 In the next sections, we explain how to compute \Fref{eq:ini-mog} and
 \Fref{eq:kernel-fun}.
-
-\begin{figure}[hbtp]
-\subimport{img/}{overview.pdf_tex}
-\caption{Overview of the algorithm\label{fig:overview}}
-\end{figure}
 
 \begin{algorithm}[h]
 \begin{algorithmic}
@@ -228,36 +317,12 @@ In the next sections, we explain how to compute \Fref{eq:ini-mog} and
 \label{alg:main-summary}
 \end{algorithm}
 
+\section{Experiments}
 
-\subsection{Notation}
+We try to recover artificially-induced-missing data, especially from MAR and
+MNAR settings; where our method might outperform MissForest, if we're lucky. 
 
-We denote the $i$th data point with ${\bf X}_{i,:}$ or $\vx_i$ and the $j$th
-dimension of all points by ${\bf X}_{:,j}$. $\vx_{i,\text{mis}}$ are the missing
-values of the $i$th point, and $\vX_{\text{obs}_j}$ are the points where the
-$j$th dimension is observed.
-
-\subsection{Infinite \ac{GMM} with missing data}
-To be written.
-
-\subsection{\ac{RBF} kernel with \ac{MoG} data likelihood}
-The multivariate \ac{RBF} kernel has the form \citep[Equation~5.1]{rasmussen2006gaussian}:
-\begin{equation}
-k(\vx_a, \vx_b) =  \sigma_f^2 \exp\left( -\frac{1}{2}(\vx_a - \vx_b)^\tp M
-    (\vx_a - \vx_b) \right) + \sigma_n^2 \delta_{ab}
-\label{eq:rbf-definition}
-\end{equation}
-
-When computing the expectation of $\vx_a$ a probability distribution like
-\Fref{eq:ini-mog}, we get the following:
-\begin{equation*}
-  \sum_k Z_k \sqrt{\frac{(2\pi)^n}{|C|}} \exp\left( \frac{1}{2}b_k^\tp C_kb_k \right)
-\end{equation*}
-With:
-\begin{equation*}
-  C_k = M + \Sigma_k; \; b_k = -2\left(\Sigma_k\mu_k + M\vx_b \right)
-\end{equation*}
-
-To be written.
+There will hopefully be tables and graphs.
 
 \section{Related Work}
 MissForest do imputation and multiple imputation \citep{stekhoven2011missforest}.
@@ -500,17 +565,19 @@ v_l &= \vv_\text{mis}^\tp  (\Sigma_l^\vv)^{-1}\vv_\text{mis} + (\mu_l^\vv)^\tp (
 
 We can split multiplications involving $\vx$:
 \begin{equation*}
-\vx^\tp M \vx =
+\begin{aligned}
+\vx^\tp M \vx &=
 \begin{bmatrix}\vx_\mis \\ \mu^\vx_\obs\end{bmatrix}^\tp
 \begin{bmatrix} M_{\misx,\misx} & M_{\misx,\obsx} \\
 M_{\obsx,\misx} & M_{\obsx,\obsx}
 \end{bmatrix}
-\begin{bmatrix}\vx_\mis \\ \mu^\vx_\obs\end{bmatrix}
+\begin{bmatrix}\vx_\mis \\ \mu^\vx_\obs\end{bmatrix} \\
+\vx^\tp M \vx &= \vx_\mis^\tp M_{\misx,\misx}\vx_\mis + (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs \\
+&+ (\mu^\vx_\obs)^\tp \left(M_{\misx,\obsx}^\tp + M_{\obsx,\misx} \right)\vx_\mis  \\
+\end{aligned}
 \end{equation*}
 \begin{equation*}
 \begin{aligned}
-\vx^\tp M \vx &= \vx_\mis^\tp M_{\misx,\misx}\vx_\mis + (\mu^\vx_\obs)^\tp M_{\obsx,\obsx}\mu^\vx_\obs \\
-&+ (\mu^\vx_\obs)^\tp \left(M_{\misx,\obsx}^\tp + M_{\obsx,\misx} \right)\vx_\mis  \\
 \vv^\tp(M + M^\tp) \vx &= \vv^\tp(M + M^\tp)_{:,\misx} \vx_\mis \\
 &+ \vv^\tp(M + M^\tp)_{:,\obsx} \mu^\vx_\obs
 \end{aligned}
